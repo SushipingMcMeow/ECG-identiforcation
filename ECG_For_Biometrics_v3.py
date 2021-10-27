@@ -15,6 +15,7 @@ import numpy as np
 import time
 import random
 import dtw
+from dtw import *
 from os import listdir
 from os.path import isfile, join
 import copy
@@ -37,7 +38,8 @@ class finalRoundProfile:
 Dir = (".\CYBHi\data\long-term")
 signal_freq = 1000
 profileSize = 5
-numOfProfiles = 30
+numOfProfiles = 10
+numOfTests = 50
 #selects a random allotment of data from the provided data array
 def shrinkTo(data,amount):
     cutoff = random.randint(0,len(data) - amount-1)
@@ -75,7 +77,7 @@ def rpeakToRpeak(data,rpeaks, rpeak):
     return data
 #selects a single random heart beat from a data sequence.
 def singleHB(data):
-        dataFrag=shrinkTo(data,5000)
+        dataFrag=shrinkTo(data,10000)
         ecg_clean(dataFrag)
         _, rpeaks = nk.ecg_peaks(dataFrag, sampling_rate=signal_freq)
         return rpeakToRpeak(dataFrag,rpeaks['ECG_R_Peaks'],1)
@@ -94,8 +96,8 @@ def runTest(participants,testSubject,questionSubject):
     #generates the score for each entry then selects the 5 lowest scores
     for i in range(len(participants)):
         for e in range(len(participants[i].HBs)):
-            testDTW = dtw(participants[i].HBs[e],testSubject.HBs)
-            testWA = dtw.warpArea(testDTW)
+            testDTW = dtw(participants[i].HBs[e],testSubject.HeartBeat)
+            testWA = warpArea(testDTW)
             if (len(topScoringSubs) < 5):
                 topScoringSubs.append(subjectScore(participants[i].ID,testWA))
                 topScoringSubs.sort(key=lambda x: x.Score, reverse=True)
@@ -106,8 +108,8 @@ def runTest(participants,testSubject,questionSubject):
                         break
     #groups the 5 scores by ID
     for i in range(len(topScoringSubs)):
+        thing = []
         if len(topScoringProfiles) != 0:
-            thing = []
             thing.append(topScoringSubs[i])
             topScoringProfiles.append(finalRoundProfile(topScoringSubs[i].ID,thing))
         elif (any(x.ID == topScoringSubs[i].ID for x in topScoringProfiles)):
@@ -117,12 +119,48 @@ def runTest(participants,testSubject,questionSubject):
         else:
             topScoringProfiles.append(finalRoundProfile(topScoringSubs[i].ID,thing))
     topScoringProfiles.sort(key = lambda x: len(x.profileSubjects))
-    if len(topScoringProfiles[0].profileSubjects) ==
-            
-            
-            
-
+    bestScore = None
+    #if there's a tie
+    if len(topScoringProfiles[0].profileSubjects) == len(topScoringProfiles[1].profileSubjects):
+        lowestScore = None
+        for e in range(2):
+            for x in range(len(topScoringProfiles(e))):
+                if lowestScore is None:
+                    lowestScore = topScoringProfiles[e].profileSubjects[x]
+                elif (topScoringProfiles[e].profileSubjects[x].Score < lowestScore.Score):
+                    lowestScore = topScoringProfiles[e].profileSubjects[x]
+        bestScore = lowestScore
+    #on a clear winner
+    else:
+        bestScore = topScoringProfiles[0]
+    #returning true positive
+    if (testSubject.ID == questionSubject) and (questionSubject == bestScore.ID):
+        return "TP"
+    #returning false negative
+    if (testSubject.ID == questionSubject) and (questionSubject != bestScore.ID):
+        return "FN"
+    #returning true negative
+    if (testSubject.ID != questionSubject) and (questionSubject != bestScore.ID):
+        return "TN"
+    #return false positive
+    if (testSubject.ID != questionSubject) and (questionSubject == bestScore.ID):
+        return "FP"
+print("getting data")
 data = importfiles(numOfProfiles)
+print("converting file data")
 subjectData = subjectArray(data)
+t,f = 2,2
 for i in range(len(subjectData)):
     plt.plot(subjectData[i].HBs[2])
+for i in range(numOfTests):
+    results = None
+    #should return a TN or FP
+    if (i % 2) == 0:
+        n = random.sample(range(0,len(subjectData)-1),2)
+        results = runTest(subjectData,generateSubject(data[n[0]]),data[n[1]][:-4])
+    #should return a TP or FN
+    else:
+        n = random.randint(0,len(subjectData)-1)
+        results = runTest(subjectData,generateSubject(data[n]),data[n][:-4])
+    print(results)
+        
