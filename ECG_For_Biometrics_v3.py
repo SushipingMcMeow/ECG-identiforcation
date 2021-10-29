@@ -19,6 +19,7 @@ from dtw import *
 from os import listdir
 from os.path import isfile, join
 import copy
+from heapq import nsmallest
 class profile:
     def __init__(self,ID,HBs):
         self.ID = ID
@@ -27,19 +28,11 @@ class subject:
     def __init__(self,ID,HeartBeat):
         self.ID = ID
         self.HeartBeat = HeartBeat
-class subjectScore:
-    def __init__(self,ID,Score):
-        self.ID = ID
-        self.Score = Score
-class finalRoundProfile:
-    def __init__(self,ID,profileSubjects):
-        self.ID = ID
-        self.profileSubjects = profileSubjects
 Dir = (".\CYBHi\data\long-term")
-signal_freq = 1000
-profileSize = 5
-numOfProfiles = 10
-numOfTests = 50
+signal_freq = 1000 #signal frequency used by the dataset 1000 for CYBHi
+profilesize = 10 #number of heart beats to compare within a profile
+numOfProfiles = 40 #number of profiles to be tested
+numOfTests = 200 #number of test to be conducted
 #selects a random allotment of data from the provided data array
 def shrinkTo(data,amount):
     cutoff = random.randint(0,len(data) - amount-1)
@@ -48,7 +41,7 @@ def shrinkTo(data,amount):
     data = np.delete(data,cutoffIndex)
     return data
 #Imports a random set of test files from the directory
-def importfiles(amount):
+def importFiles(amount):
     returnFiles = []
     filenames = [f for f in listdir(Dir) if isfile(join(Dir, f))]
     while (len(returnFiles) < amount):
@@ -62,15 +55,15 @@ def getData(fileName):
     ecg_signal = ecg_clean(ecg_signal, signal_freq)
     fileName = fileName[:-4]
     return ecg_signal
- #generates a set of profile objects each with the ID of it's source file and a number of heart beats equivelant to profileSize
+ #generates a set of profile objects each with the ID of it's source file and a number of heart beats equivelant to profilesize
 def subjectArray(data):
-    newProfiles = []
+    newprofiles = []
     for i in range(len(data)):
-        thing = profile(data[i][:-4],getHeatBeats(getData(data[i]),profileSize))
+        thing = profile(data[i][:-4],getHeatBeats(getData(data[i]),profilesize))
         #thing = i*i
-        newProfiles.append(copy.deepcopy(thing))
-        print(newProfiles[i].ID)
-    return newProfiles
+        newprofiles.append(copy.deepcopy(thing))
+        print(newprofiles[i].ID)
+    return newprofiles
 #selects a heart beat range from 1 specified r peak to the next in a data sequence.
 def rpeakToRpeak(data,rpeaks, rpeak):
     data = data[rpeaks[rpeak]:rpeaks[rpeak+1]]
@@ -92,67 +85,70 @@ def generateSubject(fileName):
     return subject(fileName[:-4],singleHB(getData(fileName)))
 def runTest(participants,testSubject,questionSubject):
     topScoringSubs = []
-    topScoringProfiles = []
-    #generates the score for each entry then selects the 5 lowest scores
+    topScoringprofiles = []
+    PID, score = len(participants)*profilesize, 2
+    profiles = [[0 for x in range(score)]for y in range(PID)]
+    bestScore = None
     for i in range(len(participants)):
         for e in range(len(participants[i].HBs)):
             testDTW = dtw(participants[i].HBs[e],testSubject.HeartBeat)
             testWA = warpArea(testDTW)
-            if (len(topScoringSubs) < 5):
-                topScoringSubs.append(subjectScore(participants[i].ID,testWA))
-                topScoringSubs.sort(key=lambda x: x.Score, reverse=True)
-            else:
-                for x in range(len(topScoringSubs)):
-                    if (testWA < topScoringSubs[x].Score):
-                        topScoringSubs[x] = subjectScore(participants[i],testWA)
-                        break
-    #groups the 5 scores by ID
-    for i in range(len(topScoringSubs)):
-        thing = []
-        if len(topScoringProfiles) != 0:
-            thing.append(topScoringSubs[i])
-            topScoringProfiles.append(finalRoundProfile(topScoringSubs[i].ID,thing))
-        elif (any(x.ID == topScoringSubs[i].ID for x in topScoringProfiles)):
-            for e in range(len(topScoringProfiles)):
-                if (topScoringProfiles[e].ID == topScoringSubs[i]):
-                    topScoringProfiles[e].profileSubjects.append(topScoringSubs[i])
+            profiles[i*profilesize + e][1] = participants[i].ID
+            profiles[i*profilesize + e][0] = testWA
+    topProfiles = nsmallest(5,profiles)
+    print(topProfiles)
+    topProfileCounts = [[0 for x in range(2)]for y in range(1)]
+    for i in range(len(topProfiles)):
+        #first
+        if i == 0:
+            topProfileCounts[0][1] = topProfiles[0][1]
+            topProfileCounts[0][0] += 1
+        # if there's already an ID hit
+        elif (topProfiles[i][1] in [e[1] for e in topProfileCounts]):
+            topProfileCounts[[e[1] for e in topProfileCounts].index(topProfiles[i][1])][0] += 1
+        #if it's a new ID hit
         else:
-            topScoringProfiles.append(finalRoundProfile(topScoringSubs[i].ID,thing))
-    topScoringProfiles.sort(key = lambda x: len(x.profileSubjects))
-    bestScore = None
-    #if there's a tie
-    if len(topScoringProfiles[0].profileSubjects) == len(topScoringProfiles[1].profileSubjects):
-        lowestScore = None
-        for e in range(2):
-            for x in range(len(topScoringProfiles(e))):
-                if lowestScore is None:
-                    lowestScore = topScoringProfiles[e].profileSubjects[x]
-                elif (topScoringProfiles[e].profileSubjects[x].Score < lowestScore.Score):
-                    lowestScore = topScoringProfiles[e].profileSubjects[x]
-        bestScore = lowestScore
-    #on a clear winner
+            topProfileCounts.append([1,topProfiles[i][1]])
+    topProfileCounts = sorted(topProfileCounts, key=lambda x: x[0], reverse=True)
+    if len(topProfileCounts) == 1:
+        bestScore = topProfileCounts[0][1]
+        print("single scoring profile event happend")
+    #checks for score ties
+    elif topProfileCounts[0][0] == 2 and topProfileCounts[1][0] == 2:
+        print('tie event happend')
+        bestScore = topProfiles[0][1]
+    elif len(topProfileCounts)==5:
+        print("5 different profiles event happend")
+        bestScore = topProfiles[0][1]
     else:
-        bestScore = topScoringProfiles[0]
+        print("clear winner event happend")
+        bestScore = topProfileCounts[0][1]
+    print("best score is", bestScore)
+    print("test subject is", testSubject.ID)
+    print("subject in question", questionSubject)
     #returning true positive
-    if (testSubject.ID == questionSubject) and (questionSubject == bestScore.ID):
+    if (testSubject.ID == questionSubject) and (questionSubject == bestScore):
         return "TP"
     #returning false negative
-    if (testSubject.ID == questionSubject) and (questionSubject != bestScore.ID):
+    if (testSubject.ID == questionSubject) and (questionSubject != bestScore):
         return "FN"
     #returning true negative
-    if (testSubject.ID != questionSubject) and (questionSubject != bestScore.ID):
+    if (testSubject.ID != questionSubject) and (questionSubject != bestScore):
         return "TN"
     #return false positive
-    if (testSubject.ID != questionSubject) and (questionSubject == bestScore.ID):
+    if (testSubject.ID != questionSubject) and (questionSubject == bestScore):
         return "FP"
 print("getting data")
-data = importfiles(numOfProfiles)
+data = importFiles(numOfProfiles)
 print("converting file data")
 subjectData = subjectArray(data)
-t,f = 2,2
+summaryMatrix = [[0 for x in range(2)]for y in range(2)]
+#testing
+print("running tests")
 for i in range(len(subjectData)):
     plt.plot(subjectData[i].HBs[2])
 for i in range(numOfTests):
+    print("test number", i+1)
     results = None
     #should return a TN or FP
     if (i % 2) == 0:
@@ -163,4 +159,33 @@ for i in range(numOfTests):
         n = random.randint(0,len(subjectData)-1)
         results = runTest(subjectData,generateSubject(data[n]),data[n][:-4])
     print(results)
-        
+    #tp
+    if results == "TP":
+        summaryMatrix[0][0] += 1
+    #tn
+    elif results == "TN":
+        summaryMatrix[1][1] += 1
+    #fp
+    elif results == "FP":
+        summaryMatrix[0][1] += 1
+    #fn
+    else:
+        summaryMatrix[1][0] += 1
+print("compiling results")
+precision = summaryMatrix[0][0] / (summaryMatrix[0][0]+summaryMatrix[0][1])
+negativePredictiveValue = summaryMatrix[1][1]/ (summaryMatrix[1][0]+summaryMatrix[1][1])
+sensitivity = summaryMatrix[0][0]/(summaryMatrix[0][0]+summaryMatrix[1][0])
+specificity = summaryMatrix[1][1]/(summaryMatrix[1][1]+summaryMatrix[0][1])
+recall = summaryMatrix[0][0]/(summaryMatrix[0][0]+summaryMatrix[1][0])
+FMeasure = (2*recall*precision)/(recall + precision)
+accuracy = (summaryMatrix[0][0] + summaryMatrix[1][1])/(summaryMatrix[0][0]+summaryMatrix[1][1]+summaryMatrix[1][0]+summaryMatrix[0][1])
+print(summaryMatrix[0][0], "|",summaryMatrix[0][1])
+print(summaryMatrix[1][0], "|",summaryMatrix[1][1])
+print("precision = ",precision)
+print("negative predictive value = ",negativePredictiveValue)
+print("sensitivity = ",sensitivity)
+print("specificity = ",specificity)
+print("recall = ",recall)
+print("F - measure = ",FMeasure)
+print("accuracy = ",accuracy)
+    
